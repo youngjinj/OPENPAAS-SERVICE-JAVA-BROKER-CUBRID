@@ -11,84 +11,95 @@ import org.openpaas.servicebroker.model.ServiceDefinition;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * Cubrid Broker의 상세정보를 정의
- * 
- * */
-
-
 @Configuration
 public class CatalogConfig {
 
 	@Bean
-	public Catalog catalog() {		
-		return new Catalog( Arrays.asList(
-				new ServiceDefinition(
-						"cubrid", 
-						"CubridDB", 
-						"A simple cubrid implementation", 
-						true, 
-						false,
-						getPlans(),
-						Arrays.asList("cubrid", "document"),
-						getServiceDefinitionMetadata(),
-						Arrays.asList("syslog_drain"),
-						null)));
+	public Catalog catalog() {
+		return new Catalog(Arrays.asList(new ServiceDefinition("cubrid", // id
+				"CUBRID", // name
+				"CUBRID is engineered as a completely free, open-source relational database management engine, with built-in enterprise grade features.", // description
+				true, // bindable
+				false, // plan_updatable
+				getPlans(), // plans
+				Arrays.asList("cubrid", "opensource"), // tags
+				getServiceDefinitionMetadata(), // metadata
+				getRequires(), // requires
+				// getDashboardClient() // dashboard_client
+				null)));
 	}
 
-	/* Used by OpenPaaS console */	
-
-	private Map<String,Object> getServiceDefinitionMetadata() {
-		Map<String,Object> sdMetadata = new HashMap<String,Object>();
-		sdMetadata.put("displayName", "CubridDB");
-		sdMetadata.put("imageUrl","http://www.openpaas.org/rs/cubrid/images/CubridDB_Logo_Full.png");
-		sdMetadata.put("longDescription","CubridDB Service");
-		sdMetadata.put("providerDisplayName","OpenPaaS");
-		sdMetadata.put("documentationUrl","http://www.openpaas.org");
-		sdMetadata.put("supportUrl","http://www.openpaas.org");
-		return sdMetadata;
-	}
-
-	private Map<String,Object> getPlanMetadata(String vol, String charset) {		
-		Map<String,Object> planMetadata = new HashMap<String,Object>();
-		planMetadata.put("costs", getCosts());
-		planMetadata.put("bullets", getBullets(vol, charset));
-		return planMetadata;
-	}
-
-	private List<Map<String,Object>> getCosts() {
-		Map<String,Object> costsMap = new HashMap<String,Object>();
-
-		Map<String,Object> amount = new HashMap<String,Object>();
-		amount.put("usd", new Double(0.0));
-
-		costsMap.put("amount", amount);
-		costsMap.put("unit", "MONTHLY");
-
-		return Arrays.asList(costsMap);
-	}
-
-	private List<String> getBullets(String vol, String charset) {
-		return Arrays.asList("Shared CubridDB server", 
-				vol+" Storage", 
-				charset+" Character Set");
-	}
+	/* Used by OpenPaaS console */
 
 	private List<Plan> getPlans() {
-		
-		List<Plan> plans = Arrays.asList(
-				new Plan("utf8", 
-						"utf8", 
-						"This is a Cubrid plan. 100 MB Database volume size and UTF-8 Charactor set.",
-						getPlanMetadata("100 MB", "UTF-8"),
-						true),
-				new Plan("euckr", 
-						"euckr", 
-						"This is a Cubrid plan. 100 MB Database volume size and EUC-KR Charactor set.",
-						getPlanMetadata("100 MB", "EUC-KR"),
-						true));
-		
+		List<Plan> plans = Arrays.asList(new Plan("128M", // id
+				"128M", // name
+				"CUBRID Database, Store up to 128M of data.", // description
+				getPlanMetadata("128M"), // metadata
+				true));
+
 		return plans;
 	}
 
+	private Map<String, Object> getServiceDefinitionMetadata() {
+		Map<String, Object> serviceDefinitionMetadata = new HashMap<String, Object>();
+		serviceDefinitionMetadata.put("displayName", "CUBRID"); // displayName
+		serviceDefinitionMetadata.put("imageUrl",
+				"https://www.cubrid.org/layouts/layout_master/img/cubrid-logo-vertical.PNG"); // imageUrl
+		serviceDefinitionMetadata.put("longDescription",
+				"CUBRID is a compound word of \"CUBE\" (meaning data storage space) and \"BRIDGE\" (meaning data connection); profoundly implicating our corporation goal is to exert the biggest positive influence as a DBMS provider in this data-centric society."); // longDescription
+		serviceDefinitionMetadata.put("providerDisplayName", "CUBRID Corporation."); // providerDisplayName
+		serviceDefinitionMetadata.put("documentationUrl", "https://www.cubrid.org/documentation/manuals"); // documentationUrl
+		serviceDefinitionMetadata.put("supportUrl", "http://www.cubrid.com"); // supportUrl
+		return serviceDefinitionMetadata;
+	}
+
+	private Map<String, Object> getPlanMetadata(String planId) {
+		Map<String, Object> planMetadata = new HashMap<String, Object>();
+		planMetadata.put("bullets", getBullets(planId)); // bullets
+		planMetadata.put("costs", getCosts(planId)); // costs
+
+		if ("128M".equals(planId)) {
+			planMetadata.put("displayName", "CUBRID Database, Store up to 128M of data."); // displayName
+		}
+
+		return planMetadata;
+	}
+
+	private List<String> getBullets(String planId) {
+		if ("128M".equals(planId)) {
+			return Arrays.asList("CUBRID Database, Store up to 128M of data.");
+		} else {
+			return Arrays.asList("Disabled");
+		}
+	}
+
+	private List<Map<String, Object>> getCosts(String planId) {
+		Map<String, Object> costs = new HashMap<String, Object>();
+		Map<String, Object> amount = new HashMap<String, Object>();
+
+		if ("128M".equals(planId)) {
+			amount.put("won", new Integer(0));
+			costs.put("amount", amount);
+			costs.put("unit", "MONTHLY");
+		}
+
+		return Arrays.asList(costs);
+	}
+
+	private List<String> getRequires() {
+//		return Arrays.asList("Windows 32/64 Bit XP, 2003, Vista, Windows 7",
+//			"Linux family 32/64 Bit(Linux kernel 2.4, glibc 2.3.4 or higher",
+//			"Requires a 500 MB of free disk space on the initial installation; requires approximately 1.5 GB of free disk space with a database creating with default options.",
+//			"JRE/JDK 1.6 or higher (Required when Java Stored Procedure is required");
+
+		return Arrays.asList("syslog_drain");
+	}
+
+//	private DashboardClient getDashboardClient() {
+//		return new DashboardClient(
+//			"CUBRID Admin", // id
+//			null, // secret
+//			"https://www.cubrid.com/downloads"); // redirect_uri
+//	}
 }

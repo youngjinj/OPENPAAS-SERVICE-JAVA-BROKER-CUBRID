@@ -9,38 +9,29 @@ import org.openpaas.servicebroker.service.CatalogService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-/**
- * Catalog 정보를 보여주기위한 서비스 클래스
- * 
- * @author Cho Mingu
- *
- */
 @Service
 public class CubridCatalogService implements CatalogService {
 
 	private Catalog catalog;
-	private Map<String,ServiceDefinition> serviceDefs = new HashMap<String,ServiceDefinition>();
-	
+	private Map<String, ServiceDefinition> serviceDefinitions = new HashMap<String, ServiceDefinition>();
+
 	@Autowired
 	public CubridCatalogService(Catalog catalog) {
 		this.catalog = catalog;
 		initializeMap();
 	}
-	
+
+	public Catalog getCatalog() {
+		return this.catalog;
+	}
+
 	private void initializeMap() {
-		for (ServiceDefinition def: catalog.getServiceDefinitions()) {
-			serviceDefs.put(def.getId(), def);
+		for (ServiceDefinition serviceDefinition : this.catalog.getServiceDefinitions()) {
+			this.serviceDefinitions.put(serviceDefinition.getId(), serviceDefinition);
 		}
 	}
-	
-	@Override
-	public Catalog getCatalog() {
-		return catalog;
-	}
 
-	@Override
 	public ServiceDefinition getServiceDefinition(String serviceId) {
-		return serviceDefs.get(serviceId);
+		return (ServiceDefinition) this.serviceDefinitions.get(serviceId);
 	}
-
 }

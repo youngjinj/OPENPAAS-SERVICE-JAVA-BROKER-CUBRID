@@ -1,462 +1,439 @@
 package org.openpaas.servicebroker.cubrid.service.impl;
 
-import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.StringJoiner;
 
-import org.openpaas.servicebroker.cubrid.exception.CubridServiceException;
+import org.json.JSONObject;
 import org.openpaas.servicebroker.cubrid.model.CubridServiceInstance;
 import org.openpaas.servicebroker.cubrid.model.CubridServiceInstanceBinding;
-import org.openpaas.servicebroker.model.ServiceInstance;
-import org.openpaas.servicebroker.util.JSchUtil;
+import org.openpaas.servicebroker.model.CreateServiceInstanceRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
-import org.springframework.jdbc.InvalidResultSetAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.stereotype.Service;
 
-/**
- * Cubrid Database의 Util 클래스이다.
- * 
- * @author 
- *
- */
+import com.google.common.hash.Hashing;
+
 @Service
 public class CubridAdminService {
-
-
 	private Logger logger = LoggerFactory.getLogger(CubridAdminService.class);
-
 	
-	/* ssh접속을 위한 객체 */
-	@Autowired
-	private JSchUtil jsch;
-
-	/* cubrid database 접속을 위한 객체*/
-	@Autowired 
-	private JdbcTemplate jdbcTemplate;
-
-	private Map<String, Object> plans = null;
+	private static final String SERVICE_DRIVER_CLASS_NAME = "cubrid.jdbc.driver.CUBRIDDriver";
+	private static final String SERVICE_INSTANCE_IP = "45.248.73.54";
+	// private static final String SERVICE_INSTANCE_IP = "192.168.2.205";
+	private static final String SERVICE_INSTANCE_PORT = "33000";
 	
 	@Autowired
-	public CubridAdminService(JSchUtil jsch, JdbcTemplate jdbcTemplate) {
-		this.jsch = jsch;
-		this.jdbcTemplate = jdbcTemplate;
+	private NamedParameterJdbcTemplate namedParameterJdbcTemplate;
+	
+	public String createDbname(String serviceInstanceId) {
+		return "db_" + Hashing.sha256().hashString(serviceInstanceId, StandardCharsets.UTF_8).toString().substring(0, 12);
+	}
+
+	public String createUsername(String serviceInstanceBindId) {
+		return "user_" + Hashing.sha256().hashString(serviceInstanceBindId, StandardCharsets.UTF_8).toString().substring(0, 10);
+	}
+	
+	public String createDbaPassword(String serviceInstanceId) {
+		return Hashing.sha256().hashString("dba" + serviceInstanceId, StandardCharsets.UTF_8).toString().substring(0, 15);
+	}
+	
+	public String getDbaPassword(String dbname) {
+		String sql = "/* getDbaPassword */ SELECT [password] FROM [credentials_info] WHERE [name] = :dbname AND [username] = 'dba'";
 		
-		this.plans = new HashMap<String, Object>();
-		Map<String, String> plan = new HashMap<String, String>();
-
-		//Plan A
-		plan.put("vol", "100M");
-		plan.put("charset", "ko_KR.utf8");
-		this.plans.put("utf8", plan);
-
-		plan = new HashMap<String, String>();
-		//Plan C
-		plan.put("vol", "100M");
-		plan.put("charset", "ko_KR.euckr");
-		this.plans.put("euckr", plan);
-
-	}
-
-	/**
-	 * 같은이름의 Database가 존재하는지 여부를 반환.
-	 * 존재하면 true
-	 * 존재하지않으면 false
-	 * 
-	 * @param instance
-	 * @return boolean
-	 * @throws CubridServiceException
-	 */
-	public boolean isExistsService(CubridServiceInstance instance) throws CubridServiceException {
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("dbname", dbname);
+		
 		try {
-			List<Map<String,Object>> databases = jdbcTemplate.queryForList("SELECT * FROM service_instances WHERE db_name = '"+instance.getDatabaseName()+"'");
-			
-			return databases.size() > 0 ? true : false;
-			
-		} catch (InvalidResultSetAccessException e) {
-			throw handleException(e);
+			return namedParameterJdbcTemplate.queryForObject(sql, param, String.class);
 		} catch (DataAccessException e) {
-			throw handleException(e);
+			// Not error.
+			logger.info("DBA has no password. : " + dbname);
 		}
+		
+		return null;
 	}
+	
+	public String createRandomPassword() {
+		final int length = 16;
 
-	/**
-	 * 같은이름의 user가 존재하는지 여부를 반환.
-	 * 존재하면 true
-	 * 존재하지않으면 false
-	 * 
-	 * @param databaseName
-	 * @param username
-	 * @return
-	 * @throws CubridServiceException
-	 */
-	public boolean isExistsUser(String databaseName, String username) throws CubridServiceException {
+		String AlphabetNumberSpecialCharacter = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+				+ "abcdefghijklmnopqrstuvwxyz"
+				+ "0123456789";
+
+		StringBuilder password = new StringBuilder();
+
+		SecureRandom secureRandom = null;
 		try {
-			List<Map<String,Object>> users = jdbcTemplate.queryForList("SELECT * "
-					+ "FROM service_instances A, service_instance_bindings B "
-					+ "WHERE A.guid = B.service_instance_id AND B.db_user_name = '"+username+"' AND A.db_name = '"+databaseName+"'");
+			secureRandom = SecureRandom.getInstance("SHA1PRNG");
+			secureRandom.setSeed(secureRandom.generateSeed(length));
+		} catch (NoSuchAlgorithmException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}
 
-			return users.size() > 0 ? true : false;
-			
-		} catch (InvalidResultSetAccessException e) {
-			throw handleException(e);
+		for (int i = 0; i < length; i++) {
+			int index = secureRandom.nextInt(AlphabetNumberSpecialCharacter.length());
+			password.append(AlphabetNumberSpecialCharacter.charAt(index));
+		}
+
+		return password.toString();
+	}
+	
+	public Map<String, Object> getCredentials(String dbname, String username, String password) {
+		Map<String, Object> credentials = new HashMap<String, Object>();
+		credentials.put("driverClassName", CubridAdminService.SERVICE_DRIVER_CLASS_NAME);
+		credentials.put("name", dbname);
+		credentials.put("hostname", CubridAdminService.SERVICE_INSTANCE_IP);
+		credentials.put("port", CubridAdminService.SERVICE_INSTANCE_PORT);
+		credentials.put("username", username);
+		credentials.put("password", password);
+		
+		StringBuilder uri = new StringBuilder();
+		uri.append("cubrid").append(":");
+		uri.append(CubridAdminService.SERVICE_INSTANCE_IP).append(":");
+		uri.append(CubridAdminService.SERVICE_INSTANCE_PORT).append(":");
+		uri.append(dbname).append(":");
+		uri.append(username).append(":");
+		uri.append(password).append(":");
+		
+		StringBuilder jdbcUrl = new StringBuilder();
+		jdbcUrl.append("jdbc").append(":");
+		jdbcUrl.append(uri.toString());
+		
+		credentials.put("uri", uri.toString());
+		credentials.put("jdbcUrl", jdbcUrl.toString());
+		
+		return credentials;
+	}
+	
+	public Map<String, Object> getCredentialsInfo(String serviceInstanceBindId) {
+		String sql = "/* getCredentialsInfo */ SELECT [service_instance_id], [service_instance_bind_id], [name], [hostname], [port], [username], [password], [uri], [jdbcurl] FROM [credentials_info] WHERE [service_instance_bind_id] = :serviceInstanceBindId";
+		
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("serviceInstanceBindId", serviceInstanceBindId);
+		
+		Map<String, Object> credentials = null;
+		try {
+			credentials = namedParameterJdbcTemplate.queryForObject(sql, param, new RowMapper<Map<String, Object>>() {
+				@Override
+				public Map<String, Object> mapRow(ResultSet rs, int rowNum) throws SQLException {
+					Map<String, Object> credentials = new HashMap<String, Object>();
+
+					credentials.put("driverClassName", CubridAdminService.SERVICE_DRIVER_CLASS_NAME);
+					credentials.put("name", rs.getString("name"));
+					credentials.put("hostname", rs.getString("hostname"));
+					credentials.put("port", rs.getString("port"));
+					credentials.put("username", rs.getString("username"));
+					credentials.put("password", rs.getString("password"));
+					credentials.put("uri", rs.getString("uri"));
+					credentials.put("jdbcUrl", rs.getString("jdbcurl"));
+
+					return credentials;
+				}
+			});
 		} catch (DataAccessException e) {
-			throw handleException(e);
+			logger.error(e.getLocalizedMessage(), e);
 		}
+
+		return credentials;
 	}
-
-	/**
-	 *  ServiceInstance의 고유식별자를 이용하여  ServiceInstance의 정보를 조회하여 반환.
-	 * 존재하지않을경우 null반환
-	 * 
-	 * @param id
-	 * @return CubridServiceInstance
-	 * @throws CubridServiceException
-	 */
-	public CubridServiceInstance findById(String id) throws CubridServiceException {
-		try {
-			CubridServiceInstance serviceInstance = null;
-
-			List<Map<String,Object>> findByIdList = jdbcTemplate.queryForList("SELECT * FROM service_instances WHERE guid = '"+id+"'");
-
-			if ( findByIdList.size() > 0) {
-
-				serviceInstance = new CubridServiceInstance();
-				Map<String,Object> findById = findByIdList.get(0); 
-
-				String serviceInstanceId = (String)findById.get("guid");
-				String planId = (String)findById.get("plan_id");
-				String databaseName = (String)findById.get("db_name");
-
-				if ( !"".equals(serviceInstanceId) && serviceInstanceId !=null) serviceInstance.setServiceInstanceId(serviceInstanceId);
-				if ( !"".equals(planId) && planId !=null) serviceInstance.setPlanId(planId);
-				if ( !"".equals(databaseName) && databaseName !=null) serviceInstance.setDatabaseName(databaseName);
-			}
-
-			return serviceInstance;
-			
-		} catch (InvalidResultSetAccessException e) {
-			throw handleException(e);
-		} catch (DataAccessException e) {
-			throw handleException(e);
-		}
-	}
-
-	/**
-	 * ServiceInstanceBinding의 고유식별자를 이용하여 ServiceInstanceBinding 정보를 조회
-	 * 존재하지않을경우 null 반환
-	 * 
-	 * @param id
-	 * @return CubridServiceInstanceBinding
-	 * @throws CubridServiceException
-	 */
-	public CubridServiceInstanceBinding findBindById(String id) throws CubridServiceException {
-		try {
-			CubridServiceInstanceBinding serviceInstanceBinding = null;
-
-			List<Map<String,Object>> findByIdList = jdbcTemplate.queryForList("SELECT * FROM service_instance_bindings WHERE guid = '"+id+"'");
-
-			if ( findByIdList.size() > 0) {
-				serviceInstanceBinding = new CubridServiceInstanceBinding();
-				Map<String,Object> findById = findByIdList.get(0);
-
-				String serviceInstanceBindingId = (String)findById.get("guid");
-				String serviceInstanceId = (String)findById.get("service_instance_id");
-				String databaseUserName = (String)findById.get("db_user_name");
+	
+	public CubridServiceInstance findServiceInstanceInfo(String serviceInstanceId) {
+		String sql = "/* findServiceInstanceInfo */ SELECT [service_instance_id], [Service_definition_id], [plan_id], [organization_guid], [space_guid], [database_name] FROM [service_instance_info] WHERE [service_instance_id] = :serviceInstanceId";
+		
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("serviceInstanceId", serviceInstanceId);
 				
-				if ( !"".equals(serviceInstanceBindingId) && serviceInstanceBindingId !=null) serviceInstanceBinding.setId(serviceInstanceBindingId);
-				if ( !"".equals(serviceInstanceId) && serviceInstanceId !=null) serviceInstanceBinding.setServiceInstanceId(serviceInstanceId);
-				if ( !"".equals(databaseUserName) && databaseUserName !=null) serviceInstanceBinding.setDatabaseUserName(databaseUserName);
+		try {
+			return namedParameterJdbcTemplate.queryForObject(sql, param, new RowMapper<CubridServiceInstance>() {
+				@Override
+				public CubridServiceInstance mapRow(ResultSet rs, int rowNum) throws SQLException {
+					CreateServiceInstanceRequest createServiceInstanceRequest = new CreateServiceInstanceRequest();
+					createServiceInstanceRequest.withServiceInstanceId(rs.getString("service_instance_id"));
+					createServiceInstanceRequest.setServiceDefinitionId(rs.getString("Service_definition_id"));
+					createServiceInstanceRequest.setPlanId(rs.getString("plan_id"));
+					createServiceInstanceRequest.setOrganizationGuid(rs.getString("organization_guid"));
+					createServiceInstanceRequest.setSpaceGuid(rs.getString("space_guid"));
 
-			}
-
-			return serviceInstanceBinding;
-			
-		} catch (InvalidResultSetAccessException e) {
-			throw handleException(e);
+					CubridServiceInstance cubridServiceInstance = new CubridServiceInstance(createServiceInstanceRequest);
+					cubridServiceInstance.setDatabaseName(rs.getString("database_name"));
+					
+					return cubridServiceInstance;
+				}
+			});
 		} catch (DataAccessException e) {
-			throw handleException(e);
+			// Not error.
+			logger.info("Service instance does not exist. : " + serviceInstanceId);
+
+			return null;
 		}
 	}
-
-	/**
-	 * ServiceInstance의 고유식별자를 이용하여 ServcieInstance 정보 및 ServiceInstanceBinding 정보를 삭제
-	 * 
-	 * @param id
-	 * @throws CubridServiceException
-	 */
 	
-	public void delete(String id) throws CubridServiceException{
-		try {
-			
-			jdbcTemplate.update("DELETE FROM service_instances WHERE guid = ?", id);
-			jdbcTemplate.update("DELETE FROM service_instance_bindings WHERE service_instance_id = ?", id);
-			
-		} catch (InvalidResultSetAccessException e) {
-			throw handleException(e);
-		} catch (DataAccessException e) {
-			throw handleException(e);
-		}
-	}
-
-	/**
-	 * ServcieInstanceBinding의 고유식별자를 이용하여 ServiceInstanceBinding 정보를 삭제
-	 * 
-	 * @param id
-	 * @throws CubridServiceException
-	 */
-	public void deleteBind(String id) throws CubridServiceException{
-		try {
-			
-			jdbcTemplate.update("DELETE FROM service_instance_bindings WHERE guid = ?", id);
-			
-		} catch (InvalidResultSetAccessException e) {
-			throw handleException(e);
-		} catch (DataAccessException e) {
-			throw handleException(e);
-		}
-	}
-
-	/**
-	 * ServiceInstance 정보를 저장.
-	 * 
-	 * @param serviceInstance
-	 * @throws CubridServiceException
-	 */
-	public void save(CubridServiceInstance serviceInstance) throws CubridServiceException {
-		try {
-			
-			jdbcTemplate.update("INSERT INTO service_instances (guid, plan_id, db_name) values (?, ?, ?)", 
-					serviceInstance.getServiceInstanceId(), serviceInstance.getPlanId(), serviceInstance.getDatabaseName());
-			
-		} catch (InvalidResultSetAccessException e) {
-			throw handleException(e);
-		} catch (DataAccessException e) {
-			throw handleException(e);
-		}
-	}
-
-	/**
-	 * ServiceInstanceBinding 정보를 저장.
-	 * 
-	 * @param serviceInstanceBinding
-	 * @throws CubridServiceException
-	 */
-	public void saveBind(CubridServiceInstanceBinding serviceInstanceBinding) throws CubridServiceException{
-		try {		
-			
-			jdbcTemplate.update("INSERT INTO service_instance_bindings (guid, service_instance_id, db_user_name) values (?, ?, ?)",
-					serviceInstanceBinding.getId(), serviceInstanceBinding.getServiceInstanceId(), serviceInstanceBinding.getDatabaseUserName());
-			
-		} catch (InvalidResultSetAccessException e) {
-			throw handleException(e);
-		} catch (DataAccessException e) {
-			throw handleException(e);
-		}
-	}
-
-	/**
-	 * ServiceInstance 정보를 변경.
-	 * 
-	 * @param instance
-	 * @throws CubridServiceException
-	 */
-	public void update(ServiceInstance instance) throws CubridServiceException{
-		try {
-			
-			jdbcTemplate.update("UPDATE service_instances SET plan_id = ? WHERE guid = ?", 
-					instance.getPlanId(), instance.getServiceInstanceId());
-			
-		} catch (InvalidResultSetAccessException e) {
-			throw handleException(e);
-		} catch (DataAccessException e) {
-			throw handleException(e);
-		}
-	}
-
-	/**
-	 * ServiceInstance에 볼륨을 추가 
-	 * 
-	 * !사용되지않음!
-	 * 
-	 * @param databaseName
-	 * @throws CubridServiceException
-	 */
-	public void addVolume(String databaseName) throws CubridServiceException{
+	public CubridServiceInstanceBinding findServiceBindInfo(String serviceInstanceBindId) {
+		String sql = "/* findServiceBindInfo */ SELECT [service_instance_bind_id], [service_instance_id], [application_id], [username] FROM [service_instance_bind_info] WHERE [service_instance_bind_id] = :serviceInstanceBindId";
 		
-		String command = "cubrid addvoldb -p data --db-volume-size=100MB " + databaseName;
-		jsch.shell(command);
-
-	}
-
-	/**
-	 * ServiceInstance 정보를 이용하여 database 정지 및 삭제.
-	 * ssh 이용
-	 * 
-	 * @param serviceInstance
-	 * @throws CubridServiceException
-	 */
-	public void deleteDatabase(CubridServiceInstance serviceInstance) throws CubridServiceException{
-		// database name
-		String databaseName = serviceInstance.getDatabaseName();
-		String filePath = "$CUBRID_DATABASES/" + databaseName;
-		List<String> commands = new ArrayList<>();
-
-		//1. create shell command(s)
-		//1-1. stop database server
-		commands.add("cubrid server stop " + databaseName);
-		//1-2. delete database
-		commands.add("cubrid deletedb " + databaseName);
-		//1-3. remove database directory
-		commands.add("rm -rf " + filePath);
-
-		//1. execute command(s)
-		jsch.shell(commands);
-	}
-
-	/**
-	 * ServiceInstance 정보를 이용하여 database 생성 및 구동.
-	 * ssh 이용
-	 * 
-	 * @param serviceInstance
-	 * @return
-	 * @throws CubridServiceException
-	 */
-	public boolean createDatabase(CubridServiceInstance serviceInstance) throws CubridServiceException{
-		// database name
-		String databaseName = serviceInstance.getDatabaseName();
-		String filePath = "$CUBRID_DATABASES/" + databaseName;
-		List<String> commands = new ArrayList<>();
-		String planId = serviceInstance.getPlanId();
-
-		@SuppressWarnings("unchecked")
-		Map<String, String> plan = (Map<String, String>) plans.get(planId);
-
-		if (plan == null) {
-			throw new CubridServiceException("no plan");
-		}
-
-		//1. create shell command(s)
-		//1-1. create directory for database
-		commands.add("mkdir -p " + filePath);
-		//1-2. create database
-		commands.add("cubrid createdb "
-				+ "--db-volume-size="+plan.get("vol")+" "
-				+ "--log-volume-size=100M "
-				+ "--file-path="+filePath+" "
-				+ databaseName+" "+plan.get("charset"));
-		//1-3. start database server
-		commands.add("cubrid server start " + databaseName);
-
-		//2. execute command(s)
-		//return ==> map key: command, val: result
-		Map<String, List<String>> rs = jsch.shell(commands);
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("serviceInstanceBindId", serviceInstanceBindId);
 		
-		return "0".equals(rs.get("exitStatus").get(0)) ? true : false;
-	}
+		try {
+			return namedParameterJdbcTemplate.queryForObject(sql, param, new RowMapper<CubridServiceInstanceBinding>() {
+				@Override
+				public CubridServiceInstanceBinding mapRow(ResultSet rs, int rowNum) throws SQLException {
+					CubridServiceInstanceBinding cubridServiceInstanceBinding = new CubridServiceInstanceBinding(
+							rs.getString("service_instance_bind_id"),
+							rs.getString("service_instance_id"),
+							getCredentialsInfo(serviceInstanceBindId),
+							null,
+							rs.getString("application_id"));
+					cubridServiceInstanceBinding.setDatabaseUserName(rs.getString("username"));
+					
+					return cubridServiceInstanceBinding;
+				}
+			});
+		} catch (DataAccessException e) {
+			logger.error("Service instance bind does not exist. : " + serviceInstanceBindId);
 
-	
-	/**
-	 * 특정 database에 사용자를 추가.
-	 * ssh 이용.
-	 * 
-	 * @param database
-	 * @param userId
-	 * @param password
-	 * @throws CubridServiceException
-	 */
-	public void createUser(String database, String userId, String password) throws CubridServiceException{
-		//1. create query 'create user ... '
-		String q = "CREATE USER " + userId + " PASSWORD '" + password + "'" + "GROUPS DBA";
-		//2. create shell command
-		String command = "csql -c \""+q+"\" " + database + " -u dba";
-
-		//3. execute command(s)
-		jsch.shell(command);
-	}
-
-	/**
-	 * 특정 database에서 사용자를 삭제
-	 * 
-	 * 
-	 * @param database
-	 * @param username
-	 * @throws CubridServiceException
-	 */
-	public void deleteUser(String database, String username) throws CubridServiceException{
-		//1. create query 'drop user .... '
-		String q = "DROP USER " + username;
-		//2. create shell command
-		String command = "csql -c \""+q+"\" " + database + " -u dba";
-
-		//3. execute command(s)
-		jsch.shell(command);
-
-	}
-
-	
-	/**
-	 * connection uri 생성
-	 * 
-	 * @param database
-	 * @param username
-	 * @param password
-	 * @return
-	 */
-	public String getConnectionString(String database, String username, String password) {
-		StringBuilder builder = new StringBuilder();
-
-		builder.append("cubrid:");
-		builder.append(getServerAddresses());
-		builder.append(database);
-		builder.append(":");
-		builder.append(username);
-		builder.append(":");
-		builder.append(password);
-		builder.append(":");
-
-		return builder.toString();
-	}
-
-	public String getServerAddresses() {
-		StringBuilder builder = new StringBuilder();
-
-		DriverManagerDataSource ds = (DriverManagerDataSource) jdbcTemplate.getDataSource();
-		String[] url = ds.getUrl().split(":");
-
-		builder.append(url[2]);
-		builder.append(":");
-		builder.append(url[3]);
-		builder.append(":");
-		return builder.toString();
-	}
-
-	private CubridServiceException handleException(Exception e) {
-		logger.warn(e.getLocalizedMessage(), e);
-		return new CubridServiceException(e.getLocalizedMessage());
+			return null;
+		}
 	}
 	
-	/*
-	public List<String> getDBList() {
-		String command = "cm_admin listdb";
-		Map<String, List<String>> resultMap = jsch.shell(command);
+	public boolean isExistsServiceBind(String serviceInstanceId) {
+		String sql = "/* isExistsServiceBind */ SELECT count([service_instance_bind_id]) FROM [service_instance_bind_info] WHERE [service_instance_id] = :serviceInstanceId";
 
-		//value exam..
-		//listDB = [  1.  DBName1,   2.  DBname2]
-		//I want ... [DBName1, DBname2]
-		List<String> listDB = resultMap.get(command);
-
-		List<String> listDBName = new ArrayList<>();
-		for (int i=0; i < listDB.size(); i++) {
-			 listDBName.add( listDB.get(i).split("  ")[2]);
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("serviceInstanceId", serviceInstanceId);
+		
+		Integer count = 0;
+		try {
+			count = namedParameterJdbcTemplate.queryForObject(sql, param, Integer.class);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
 		}
 
-		return listDBName;
-	}*/
+		return count > 0 ? true : false;
+	}
+	
+	public void save(CubridServiceInstance serviceInstance, String dbapass) {
+		saveServiceInstanceInfo(serviceInstance);
+		Map<String, Object> credentials = getCredentials(serviceInstance.getDatabaseName(), "dba", dbapass);
+		saveCredentialsInfo(serviceInstance.getServiceInstanceId(), null, credentials);
+	}
+	
+	public void saveBind(CubridServiceInstanceBinding serviceInstanceBinding) {
+		saveServiceInstanceBindInfo(serviceInstanceBinding);
+		saveCredentialsInfo(serviceInstanceBinding.getServiceInstanceId(), serviceInstanceBinding.getId(), serviceInstanceBinding.getCredentials());
+	}
+	
+	public void delete(String serviceInstanceId) {
+		deleteServiceInstanceInfo(serviceInstanceId);
+		deleteCredentialsInfoByInstanceId(serviceInstanceId);
+	}
+	
+	public void deleteBind(String serviceInstanceBindId) {
+		deleteServiceInstanceBindInfo(serviceInstanceBindId);
+		deleteCredentialsInfoByBindId(serviceInstanceBindId);
+	}
+	
+	public void deleteBindByInstanceId(String serviceInstanceId) {
+		String sql = "/* deleteBindByInstanceId */ DELETE FROM [service_instance_bind_info] WHERE [service_instance_id] = :serviceInstanceId";
+		
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("serviceInstanceId", serviceInstanceId);
+		
+		try {
+			this.namedParameterJdbcTemplate.update(sql, param);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}
+	}
+	
+	public void dropOwnerObject(String serviceInstanceBindId) {
+		Map<String, Object> credentials = getCredentialsInfo(serviceInstanceBindId);
+		
+		DriverManagerDataSource instanceDataSource = new DriverManagerDataSource();
+		instanceDataSource.setDriverClassName(String.valueOf(credentials.get("driverClassName")));
+		instanceDataSource.setUrl(String.valueOf(credentials.get("jdbcUrl")));
+		instanceDataSource.setUsername(String.valueOf(credentials.get("username")));
+		instanceDataSource.setPassword(String.valueOf(credentials.get("password")));
+		
+		JdbcTemplate instanceJdbcTemplate = new JdbcTemplate(instanceDataSource);
+		
+		dropForeignKey(instanceJdbcTemplate);
+		dropObject(instanceJdbcTemplate);
+	}
+	
+	public String getErrorMessage(String request, String serviceInstanceId, String dbname, JSONObject response) {
+		StringJoiner message = new StringJoiner(" ");
 
+		message.add("[").add(request).add("-").add(serviceInstanceId + " (" + dbname + ")").add("]");
+
+		if (response != null && response.get("task") != null) {
+			message.add(response.get("task").toString()).add(":");
+		}
+
+		if (response != null && response.get("status") != null) {
+			message.add(response.get("status").toString());
+		}
+
+		if (response != null && response.get("note") != null) {
+			message.add("-").add(response.get("note").toString());
+		}
+
+		return message.toString();
+	}
+	
+	private void saveServiceInstanceInfo(CubridServiceInstance serviceInstance) {
+		String sql = "/* saveServiceInstanceInfo */ INSERT INTO [service_instance_info] ([service_instance_id], [service_definition_id], [plan_id], [organization_guid], [space_guid], [database_name]) VALUES (:serviceInstanceId, :serviceDefinitionId, :planId, :organizationGuid, :spaceGuid, :databaseName)";
+		
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("serviceInstanceId", serviceInstance.getServiceInstanceId())
+				.addValue("serviceDefinitionId", serviceInstance.getServiceDefinitionId())
+				.addValue("planId", serviceInstance.getPlanId())
+				.addValue("organizationGuid", serviceInstance.getOrganizationGuid())
+				.addValue("spaceGuid", serviceInstance.getSpaceGuid())
+				.addValue("databaseName", serviceInstance.getDatabaseName());
+		
+		try {
+			this.namedParameterJdbcTemplate.update(sql, param);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}
+	}
+	
+	private void saveServiceInstanceBindInfo(CubridServiceInstanceBinding serviceInstanceBinding) {
+		String sql = "/* saveServiceInstanceBindInfo */ INSERT INTO [service_instance_bind_info] ([service_instance_bind_id], [service_instance_id], [application_id], [username]) VALUES (:serviceInstanceBindId, :serviceInstanceId, :applicationId, :username)";
+		
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("serviceInstanceBindId", serviceInstanceBinding.getId())
+				.addValue("serviceInstanceId", serviceInstanceBinding.getServiceInstanceId())
+				.addValue("applicationId", serviceInstanceBinding.getAppGuid())
+				.addValue("username", serviceInstanceBinding.getDatabaseUserName());
+		
+		try {
+			this.namedParameterJdbcTemplate.update(sql, param);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}
+	}
+	
+	private void saveCredentialsInfo(String serviceInstanceId, String serviceInstanceBindId, Map<String, Object> credentials) {
+		String sql = "/* saveCredentialsInfo */ INSERT INTO [credentials_info] ([service_instance_id], [service_instance_bind_id], [name], [hostname], [port], [username], [password], [uri], [jdbcurl]) VALUES (:serviceInstanceId, :serviceInstanceBindId, :name, :hostname, :port, :username, :password, :uri, :jdbcUrl)";
+		
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("serviceInstanceId", serviceInstanceId)
+				.addValue("serviceInstanceBindId", serviceInstanceBindId)
+				.addValue("name", credentials.get("name"))
+				.addValue("hostname", credentials.get("hostname"))
+				.addValue("port", credentials.get("port"))
+				.addValue("username", credentials.get("username"))
+				.addValue("password", credentials.get("password"))
+				.addValue("uri", credentials.get("uri"))
+				.addValue("jdbcUrl", credentials.get("jdbcUrl"));
+		
+		try {
+			this.namedParameterJdbcTemplate.update(sql, param);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}
+	}
+	
+	private void deleteServiceInstanceInfo(String serviceInstanceId) {
+		String sql = "/* deleteServiceInstanceInfo */ DELETE FROM [service_instance_info] WHERE [service_instance_id] = :serviceInstanceId";
+
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("serviceInstanceId", serviceInstanceId);
+		
+		try {
+			this.namedParameterJdbcTemplate.update(sql, param);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}
+	}
+	
+	private void deleteServiceInstanceBindInfo(String serviceInstanceBindId) {
+		String sql = "/* deleteServiceInstanceBindInfo */ DELETE FROM [service_instance_bind_info] WHERE [service_instance_bind_id] = :serviceInstanceBindId";
+		
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("serviceInstanceBindId", serviceInstanceBindId);
+		
+		try {
+			this.namedParameterJdbcTemplate.update(sql, param);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}
+	}
+	
+	private void deleteCredentialsInfoByInstanceId(String serviceInstanceId) {
+		String sql = "/* DELETET_CREDENTIALS_INFO_BY_INSTANCE_ID */ DELETE FROM [credentials_info] WHERE [service_instance_id] = :serviceInstanceId";
+		
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("serviceInstanceId", serviceInstanceId);
+		
+		try {
+			this.namedParameterJdbcTemplate.update(sql, param);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}	
+	}
+	
+	private void deleteCredentialsInfoByBindId(String serviceInstanceBindId) {
+		String sql = "/* deleteCredentialsInfoByBindId */ DELETE FROM [credentials_info] WHERE [service_instance_bind_id] = :serviceInstanceBindId";
+
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("serviceInstanceBindId", serviceInstanceBindId);
+		
+		try {
+			this.namedParameterJdbcTemplate.update(sql, param);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}	
+	}
+	
+	private void dropForeignKey(JdbcTemplate instanceJdbcTemplate) {
+		String sql = "/* dropForeignKey */ SELECT 'ALTER TABLE ' || [class_name] || ' DROP CONSTRAINT ' || [index_name] || ';' AS [DROP_FOREIGN_KEY] FROM [db_index] WHERE [is_foreign_key] = 'YES'";
+		
+		List<Map<String, Object>> ownerForeignKey = instanceJdbcTemplate.queryForList(sql);
+		
+		Iterator<Map<String, Object>> ownerForeignKeyIter = ownerForeignKey.iterator();
+		while (ownerForeignKeyIter.hasNext()) {
+			Map<String, Object> ownerForeignKeyRow = ownerForeignKeyIter.next();
+			
+			String dropForeignKey = ownerForeignKeyRow.get("DROP_FOREIGN_KEY").toString();
+			
+			instanceJdbcTemplate.execute(dropForeignKey);
+		}
+	}
+	
+	private void dropObject(JdbcTemplate instanceJdbcTemplate) {
+		String sql = "/* dropOwnerObject */ SELECT DECODE ([class_type], 'CLASS', 'TABLE', 'VCLASS', 'VIEW') AS [object_type], [class_name] AS [name] FROM [db_class] WHERE [owner_name] = USER AND [class_type] IN ('CLASS', 'VCLASS') AND [is_system_class] = 'NO'"
+				+ " UNION ALL SELECT 'SERIAL' AS [object_type], [name] AS [name] FROM [db_serial] WHERE [owner].[name] = USER AND [class_name] IS NULL"
+				+ " UNION ALL SELECT [sp_type] AS [object_type], [sp_name] AS [name] FROM [db_stored_procedure] WHERE [owner] = USER AND [sp_type] IN ('PROCEDURE', 'FUNCTION')";
+		
+		List<Map<String, Object>> ownerObject = instanceJdbcTemplate.queryForList(sql);
+		
+		Iterator<Map<String, Object>> ownerObjectIter = ownerObject.iterator();
+		while (ownerObjectIter.hasNext()) {
+			Map<String, Object> ownerObjectRow = ownerObjectIter.next();
+			
+			String objectType = ownerObjectRow.get("object_type").toString();
+			String name = ownerObjectRow.get("name").toString();
+			
+			instanceJdbcTemplate.execute("DROP " + objectType + " " + name + ";");
+		}
+	}
 }
