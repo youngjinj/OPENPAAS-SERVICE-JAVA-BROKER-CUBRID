@@ -24,12 +24,6 @@ public class CubridServiceInstanceService implements ServiceInstanceService {
 	
 	@Autowired
 	private CubridManagerServerAPIService cubridManagerServerAPIService;
-
-//	@Autowired
-//	public CubridServiceInstanceService(CubridAdminService cubridAdminService, CubridManagerServerAPIService cubridHttpsURLService) {
-//		this.cubridAdminService = cubridAdminService;
-//		this.cubridManagerServerAPIService = cubridHttpsURLService;
-//	}
 	
 	@Override
 	public CubridServiceInstance createServiceInstance(CreateServiceInstanceRequest createServiceInstanceRequest) throws ServiceInstanceExistsException, ServiceBrokerException {
@@ -108,20 +102,12 @@ public class CubridServiceInstanceService implements ServiceInstanceService {
 				throw new CubridServiceException(cubridAdminService.getErrorMessage("service-create: start new-instance", serviceInstanceId, dbname, response));
 			}
 			
-			response = cubridManagerServerAPIService.doUpdateuserDBAPassword(dbname, dbapass);
-			logger.info("Change dba password. : " + serviceInstanceId + " (" + dbname + ")");
-			if (response != null && response.get("status") != null && ("success".equals(response.get("status").toString()) == false)) {
-				logger.error("Failed to change dba password. : " + serviceInstanceId + " (" + dbname + ")");
-				
-				throw new CubridServiceException(cubridAdminService.getErrorMessage("service-create: change dba-password", serviceInstanceId, dbname, response));
-			}
+			logger.info("Update DBA password. : " + serviceInstanceId + " (" + dbname + ")");
+			cubridAdminService.doUpdateDBAPassword(dbname, dbapass);
 			
-			if (response != null && response.get("status") != null && ("success".equals(response.get("status").toString()) == true)) {
-				logger.info("Save database creation information. : " + serviceInstanceId + " (" + dbname + ")");
-				
-				createServiceInstance.setDatabaseName(dbname);
-				cubridAdminService.save(createServiceInstance, dbapass);
-			}
+			logger.info("Save database creation information. : " + serviceInstanceId + " (" + dbname + ")");
+			createServiceInstance.setDatabaseName(dbname);
+			cubridAdminService.save(createServiceInstance, dbapass);
 			
 			logger.info("Service instance creation complete. : " + serviceInstanceId);
 			

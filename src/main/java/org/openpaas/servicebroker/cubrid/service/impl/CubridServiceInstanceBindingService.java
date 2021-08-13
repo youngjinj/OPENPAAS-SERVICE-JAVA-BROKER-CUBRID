@@ -22,15 +22,6 @@ public class CubridServiceInstanceBindingService implements ServiceInstanceBindi
 	
 	@Autowired
 	private CubridAdminService cubridAdminService;
-	
-	@Autowired
-	private CubridManagerServerAPIService cubridManagerServerAPIService;
-	
-//	@Autowired
-//	public CubridServiceInstanceBindingService(CubridAdminService cubridAdminService, CubridManagerServerAPIService cubridHttpsURLService) {
-//		this.cubridAdminService = cubridAdminService;
-//		this.cubridManagerServerAPIService = cubridHttpsURLService;
-//	}
 
 	@Override
 	public CubridServiceInstanceBinding createServiceInstanceBinding(CreateServiceInstanceBindingRequest createServiceInstanceBindingRequest) throws ServiceInstanceBindingExistsException, ServiceBrokerException {
@@ -70,23 +61,13 @@ public class CubridServiceInstanceBindingService implements ServiceInstanceBindi
 				CubridServiceInstanceBinding createServiceInstanceBinding = new CubridServiceInstanceBinding(
 						serviceInstanceBindId, serviceInstanceId, credentials, null,
 						createServiceInstanceBindingRequest.getAppGuid());
-				
-				JSONObject response = null;
 
 				logger.info("Create user. : " + serviceInstanceBindId + " (" + dbname + " - " + username + ")");
-				response = cubridManagerServerAPIService.doCreateuser(dbname, dbapass, username, password);
-				if (response != null && response.get("status") != null && ("success".equals(response.get("status").toString()) == false)) {
-					logger.error("User creation failed. : " + serviceInstanceBindId + " (" + dbname + " - " + username + ")");
-					
-					throw new CubridServiceException(cubridAdminService.getErrorMessage("service-bind: create bind-user", serviceInstanceId, dbname, response));
-				}
+				cubridAdminService.doCreateUser(dbname, dbapass, username, password);
 				
-				if (response != null && response.get("status") != null && ("success".equals(response.get("status").toString()) == true)) {
-					logger.info("Save service instance bind information. : " + serviceInstanceBindId + " (" + dbname + " - " + username + ")");
-					
-					createServiceInstanceBinding.setDatabaseUserName(username);
-					cubridAdminService.saveBind(createServiceInstanceBinding);
-				}
+				logger.info("Save service instance bind information. : " + serviceInstanceBindId + " (" + dbname + " - " + username + ")");
+				createServiceInstanceBinding.setDatabaseUserName(username);
+				cubridAdminService.saveBind(createServiceInstanceBinding);
 				
 				logger.info("Service instance binding complete. : " + serviceInstanceBindId);
 
@@ -108,7 +89,6 @@ public class CubridServiceInstanceBindingService implements ServiceInstanceBindi
 			
 			CubridServiceInstance findServiceInstance = cubridAdminService.findServiceInstanceInfo(findServiceInstanceBinding.getServiceInstanceId());
 			
-			String serviceInstanceId = findServiceInstanceBinding.getServiceInstanceId();
 			String serviceInstanceBindId = findServiceInstanceBinding.getId();
 			
 			if (findServiceInstance != null) { // (findServiceInstanceBinding != null) && (findServiceInstance != null)
@@ -116,18 +96,11 @@ public class CubridServiceInstanceBindingService implements ServiceInstanceBindi
 				String dbapass = cubridAdminService.getDbaPassword(dbname);
 				String username = findServiceInstanceBinding.getDatabaseUserName();
 				
-				JSONObject response = null;
-				
 				logger.info("Delete user object. : " + serviceInstanceBindId + " (" + dbname + " - " + username + ")");
 				cubridAdminService.dropOwnerObject(serviceInstanceBindId);
 				
 				logger.info("Delete user. : " + serviceInstanceBindId + " (" + dbname + " - " + username + ")");
-				response = cubridManagerServerAPIService.doDeleteuser(dbname, dbapass, username);
-				if (response != null && response.get("status") != null && ("success".equals(response.get("status").toString()) == false)) {
-					logger.info("Failed to delete user. : " + serviceInstanceBindId + " (" + dbname + " - " + username + ")");
-					
-					throw new CubridServiceException(cubridAdminService.getErrorMessage("service-unbind: delete bind-user", serviceInstanceId, dbname, response));
-				}
+				cubridAdminService.doDeleteUser(dbname, dbapass, username);
 				
 				logger.info("Delete service instance bind information. : " + serviceInstanceBindId);
 				cubridAdminService.deleteBind(serviceInstanceBindId);

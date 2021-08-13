@@ -56,14 +56,6 @@ public class CubridManagerServerAPIService {
 	private static final String KO_KR_UTF8 = "ko_KR.utf8";
 	
 	private static String token = null;
-	private static List<String> tokenRequestList = null;
-	
-	static {
-		tokenRequestList = Collections.synchronizedList(new ArrayList<String>());
-	}
-	
-	@Autowired
-	private CubridAdminService cubridAdminService;
 	
 	public CubridManagerServerAPIService() {
 		super();
@@ -194,8 +186,8 @@ public class CubridManagerServerAPIService {
 		return message.toString();
 	}
 	
-	private void doLogin(String tokeRequestId) throws ServiceBrokerException {
-		logger.info("Login to CUBRID Manager Server... (Token-Request-Id: " + tokeRequestId + ")");
+	private void doLogin() {
+		logger.info("Login to CUBRID Manager Server...");
 		
 		final String task = "login";
 		
@@ -207,157 +199,19 @@ public class CubridManagerServerAPIService {
 				.put("password", CubridManagerServerAPIService.CM_PASSWORD)
 				.put("clientver", CubridManagerServerAPIService.CM_CLIENTVER);
 		
-		int second = 0;
-		while (second < 60) {
-			synchronized (CubridManagerServerAPIService.tokenRequestList) {
-				if (CubridManagerServerAPIService.tokenRequestList.isEmpty()) {			
-					sendRequest(connection, request);
-					logger.info(request.toString(4));
-					
-					JSONObject response = recvResponse(connection);
-					logger.info(response.toString(4));
-				
-					connection.disconnect();
-					logger.info("connection.disconnect()");
-					
-					if (response != null && response.get("status") != null && "success".equals(response.get("status").toString())) {
-						logger.info("Login succeed.");
-						
-						if (response.get("token") != null) {
-							CubridManagerServerAPIService.token = response.get("token").toString();
-							logger.info("Token change complete.");
-							
-							CubridManagerServerAPIService.tokenRequestList.add(tokeRequestId);
-							logger.info("Add to Token-Request-List. (Token-Request-Id: " + tokeRequestId + ")");
-							logger.info("Token-Request-List: " + CubridManagerServerAPIService.tokenRequestList.toString());
-							
-							logger.info("Login to CUBRID Manager Server complete. (Token-Request-Id: " + tokeRequestId + ")");
-							
-							return;
-						} else {
-							logger.info("Login to CUBRID Manager Server failed. : Token is null. (Token-Request-Id: " + tokeRequestId + ")");
-							
-							throw new CubridServiceException(getErrorMessage(task, tokeRequestId, response));
-						}
-					} else {
-						logger.info("Login to CUBRID Manager Server failed. : Failed. (Token-Request-Id: " + tokeRequestId + ")");
-						
-						throw new CubridServiceException(getErrorMessage(task, tokeRequestId, response));
-					}
-				} else { // isNotEmpty
-					CubridManagerServerAPIService.tokenRequestList.add(tokeRequestId);
-					logger.info("Add to Token-Request-List. (Token-Request-Id: " + tokeRequestId + ")");
-					logger.info("Token-Request-List: " + CubridManagerServerAPIService.tokenRequestList.toString());
-					
-					logger.info("Login to CUBRID Manager Server complete. : Token reuse. (Token-Request-Id: " + tokeRequestId + ")");
-					
-					return;
-				}
-			}
-			
-//			try {
-//				Thread.sleep(1000);
-//				second++;
-//				
-//				logger.info("Wait for other tasks to complete. (Waiting: " + second + " sec)");
-//			} catch (InterruptedException e) {
-//				e.printStackTrace();
-//			}
-		}
-		
-		logger.info("Login to CUBRID Manager Server failed. : Max wait timeout. (Token-Request-Id: " + tokeRequestId + ")");
-		
-		throw new CubridServiceException(getErrorMessage(task, tokeRequestId, null));
-	}
-	
-	private void doDbmtuserlogin(String dbname) {
-		logger.info("Dbmtuserlogin to CUBRID Manager Server... (DB: " + dbname + ")");
-		
-		final String task = "dbmtuserlogin";
-		
-		HttpsURLConnection connection = getConnection();
-		
-		String dbuser = "dba";
-		String dbpasswd = cubridAdminService.getDbaPassword(dbname);
-		
-		if (dbpasswd == null) {
-			dbpasswd = "";
-		}
-		
-		try {
-			doLogin(task + ":" + dbname);
-		} catch (ServiceBrokerException e) {
-			e.printStackTrace();
-		}
-		
-		String token = CubridManagerServerAPIService.token;
-		
-		JSONObject request = new JSONObject()
-				.put("task", task)
-				.put("token", token)
-				.put("targetid", CubridManagerServerAPIService.CM_ID)
-				.put("dbname", dbname)
-				.put("dbuser", dbuser)
-				.put("dbpasswd", dbpasswd);
-		
 		sendRequest(connection, request);
 		logger.info(request.toString(4));
-	
+		
+		JSONObject response = recvResponse(connection);
+		logger.info(response.toString(4));
+		
 		connection.disconnect();
 		logger.info("connection.disconnect()");
 		
-		logger.info("Dbmtuserlogin to CUBRID Manager Server complete. (DB: " + dbname + ")");
+		CubridManagerServerAPIService.token = response.get("token").toString();
+		
+		logger.info("Login to CUBRID Manager Server complete.");
 	}
-	
-//	private JSONObject doLogout() throws ServiceBrokerException {
-//		logger.info("Logout to CUBRID Manager Server...");
-//		
-//		final String task = "logout";
-//		
-//		HttpsURLConnection connection = getConnection();
-//		
-//		int second = 0;
-//		while (second < 60) {
-//			synchronized (CubridManagerServerAPIService.tokenRequestList) {
-//				JSONObject request = new JSONObject()
-//						.put("task", task)
-//						.put("token", token);
-//				
-//				if (CubridManagerServerAPIService.tokenRequestList.isEmpty()) {
-//					sendRequest(connection, request);
-//					logger.info(request.toString(4));
-//					
-//					JSONObject response = recvResponse(connection);
-//					logger.info(response.toString(4));
-//				
-//					connection.disconnect();
-//					logger.info("connection.disconnect()");
-//					
-//					if (response != null && response.get("status") != null && "success".equals(response.get("status").toString())) {
-//						logger.info("Logout to CUBRID Manager Server complete. (Token: " + token + ")");
-//
-//					} else {
-//						logger.info("Logout to CUBRID Manager Server failed. : Failed. (Token: " + token + ")");
-//						
-//						throw new CubridServiceException(getErrorMessage(task, token, response));
-//					}
-//				}
-//			}
-//			
-//			try {
-//				Thread.sleep(1000);
-//				second++;
-//				
-//				logger.info("Wait for other tasks to complete. (Waiting: " + second + " sec)");
-//			} catch (InterruptedException e) {
-//				e.printStackTrace();
-//			}
-//		}
-//		
-//		logger.info("Login to CUBRID Manager Server failed. : Max wait timeout. (Token: " + token + ")");
-//		
-//		throw new CubridServiceException(getErrorMessage(task, token, null));
-//	}
 
 	public String doStartinfo(String dbname) {
 		logger.info("Getting start info... (DB: " + dbname + ")");
@@ -365,12 +219,7 @@ public class CubridManagerServerAPIService {
 		final String task = "startinfo";
 		
 		HttpsURLConnection connection = getConnection();
-		
-		try {
-			doLogin(task + ":" + dbname);
-		} catch (ServiceBrokerException e) {
-			e.printStackTrace();
-		}
+		doLogin();
 		
 		String token = CubridManagerServerAPIService.token;
 		
@@ -397,11 +246,7 @@ public class CubridManagerServerAPIService {
 				while (iterActive.hasNext()) {
 					JSONObject active = (JSONObject) iterActive.next();
 
-					if (active.get("dbname") != null && dbname.equals(active.get("dbname"))) {
-						synchronized (CubridManagerServerAPIService.tokenRequestList) {
-							CubridManagerServerAPIService.tokenRequestList.remove(task + ":" + dbname);
-						}
-						
+					if (active.get("dbname") != null && dbname.equals(active.get("dbname"))) {						
 						logger.info("Getting start info complete. : Start. (DB: " + dbname + ")");
 						
 						return "start";
@@ -421,20 +266,12 @@ public class CubridManagerServerAPIService {
 					JSONObject active = (JSONObject) iterDbs.next();
 
 					if (active.get("dbname") != null && dbname.equals(active.get("dbname"))) {
-						synchronized (CubridManagerServerAPIService.tokenRequestList) {
-							CubridManagerServerAPIService.tokenRequestList.remove(task + ":" + dbname);
-						}
-						
 						logger.info("Getting start info complete. : Create. (DB: " + dbname + ")");
 						
 						return "create";
 					}
 				}
 			}
-		}
-			
-		synchronized (CubridManagerServerAPIService.tokenRequestList) {
-			CubridManagerServerAPIService.tokenRequestList.remove(task + ":" + dbname);
 		}
 		
 		logger.info("Getting start info complete. : Null. (DB: " + dbname + ")");
@@ -448,6 +285,7 @@ public class CubridManagerServerAPIService {
 		final String task = "createdb";
 		
 		HttpsURLConnection connection = getConnection();
+		doLogin();
 		
 		String numpage = CubridManagerServerAPIService.NUM_PAGE_128M;
 		String pagesize = CubridManagerServerAPIService.PAGESIZE_16K;
@@ -457,12 +295,6 @@ public class CubridManagerServerAPIService {
 		String logvolpath = CubridManagerServerAPIService.CUBRID_DATABASES + "/" + dbname;
 		String charset = CubridManagerServerAPIService.KO_KR_UTF8;
 		String overwrite_config_file = "YES";
-		
-		try {
-			doLogin(task + ":" + dbname);
-		} catch (ServiceBrokerException e) {
-			e.printStackTrace();
-		}
 		
 		String token = CubridManagerServerAPIService.token;
 		
@@ -487,10 +319,6 @@ public class CubridManagerServerAPIService {
 	
 		connection.disconnect();
 		logger.info("connection.disconnect()");
-
-		synchronized (CubridManagerServerAPIService.tokenRequestList) {
-			CubridManagerServerAPIService.tokenRequestList.remove(task + ":" + dbname);
-		}
 		
 		logger.info("Creating database complete. (DB: " + dbname + ")");
 
@@ -503,14 +331,9 @@ public class CubridManagerServerAPIService {
 		final String task = "deletedb";
 		
 		HttpsURLConnection connection = getConnection();
+		doLogin();
 		
 		String delbackup = "y";
-		
-		try {
-			doLogin(task + ":" + dbname);
-		} catch (ServiceBrokerException e) {
-			e.printStackTrace();
-		}
 		
 		String token = CubridManagerServerAPIService.token;
 		
@@ -528,55 +351,9 @@ public class CubridManagerServerAPIService {
 	
 		connection.disconnect();
 		logger.info("connection.disconnect()");
-
-		synchronized (CubridManagerServerAPIService.tokenRequestList) {
-			CubridManagerServerAPIService.tokenRequestList.remove(task + ":" + dbname);
-		}
 		
 		logger.info("Deleting database complete. (DB: " + dbname + ")");
 
-		return response;
-	}
-	
-	public JSONObject doUpdateuserDBAPassword(String dbname, String userpass) {
-		logger.info("Updating user DBA-Password... (DB: " + dbname + ")");
-		
-		final String task = "updateuser";
-		
-		HttpsURLConnection connection = getConnection();
-		
-		String username = "dba";
-		
-		try {
-			doLogin(task + ":" + dbname);
-			doDbmtuserlogin(dbname);
-		} catch (ServiceBrokerException e) {
-			e.printStackTrace();
-		}
-		
-		String token = CubridManagerServerAPIService.token;
-		
-		JSONObject request = new JSONObject()
-				.put("task", task)
-				.put("token", token)
-				.put("dbname", dbname)
-				.put("username", username)
-				.put("userpass", userpass);
-		
-		sendRequest(connection, request);
-		logger.info(request.toString(4));
-		
-		JSONObject response = recvResponse(connection);
-		logger.info(response.toString(4));
-	
-		connection.disconnect();
-		logger.info("connection.disconnect()");
-
-		synchronized (CubridManagerServerAPIService.tokenRequestList) {
-			CubridManagerServerAPIService.tokenRequestList.remove(task + ":" + dbname);
-		}
-		
-		logger.info("Updating user DBA-Password complete. (DB: " + dbname + ")");
 		return response;
 	}
 	
@@ -629,12 +406,7 @@ public class CubridManagerServerAPIService {
 		final String task = "startdb";
 		
 		HttpsURLConnection connection = getConnection();
-		
-		try {
-			doLogin(task + ":" + dbname);
-		} catch (ServiceBrokerException e) {
-			e.printStackTrace();
-		}
+		doLogin();
 		
 		String token = CubridManagerServerAPIService.token;
 		
@@ -651,10 +423,6 @@ public class CubridManagerServerAPIService {
 	
 		connection.disconnect();
 		logger.info("connection.disconnect()");
-
-		synchronized (CubridManagerServerAPIService.tokenRequestList) {
-			CubridManagerServerAPIService.tokenRequestList.remove(task + ":" + dbname);
-		}
 		
 		logger.info("Starting database complete. (DB: " + dbname + ")");
 
@@ -667,12 +435,7 @@ public class CubridManagerServerAPIService {
 		final String task = "stopdb";
 		
 		HttpsURLConnection connection = getConnection();
-		
-		try {
-			doLogin(task + ":" + dbname);
-		} catch (ServiceBrokerException e) {
-			e.printStackTrace();
-		}
+		doLogin();
 		
 		String token = CubridManagerServerAPIService.token;
 		
@@ -689,10 +452,6 @@ public class CubridManagerServerAPIService {
 	
 		connection.disconnect();
 		logger.info("connection.disconnect()");
-
-		synchronized (CubridManagerServerAPIService.tokenRequestList) {
-			CubridManagerServerAPIService.tokenRequestList.remove(task + ":" + dbname);
-		}
 		
 		logger.info("Stopping database complete. (DB: " + dbname + ")");
 
@@ -705,12 +464,7 @@ public class CubridManagerServerAPIService {
 		final String task = "userinfo";
 		
 		HttpsURLConnection connection = getConnection();
-		
-		try {
-			doLogin(task + ":" + dbname);
-		} catch (ServiceBrokerException e) {
-			e.printStackTrace();
-		}
+		doLogin();
 		
 		String token = CubridManagerServerAPIService.token;
 		
@@ -728,102 +482,9 @@ public class CubridManagerServerAPIService {
 	
 		connection.disconnect();
 		logger.info("connection.disconnect()");
-
-		synchronized (CubridManagerServerAPIService.tokenRequestList) {
-			CubridManagerServerAPIService.tokenRequestList.remove(task + ":" + dbname);
-		}
 		
 		logger.info("Getting user info complete. (DB: " + dbname + ")");
 
 		return response;
 	}
-	
-	public JSONObject doCreateuser(String dbname, String dbapass, String username, String userpass) {
-		logger.info("Creating user... (DB: " + dbname + ", USER: " + username + ")");
-		
-		final String task = "createuser";
-		
-		HttpsURLConnection connection = getConnection();
-		
-		try {
-			doLogin(task + ":" + dbname + ":" + username);
-		} catch (ServiceBrokerException e) {
-			e.printStackTrace();
-		}
-		
-		String token = CubridManagerServerAPIService.token;
-		
-		JSONObject request = new JSONObject()
-				.put("task", task)
-				.put("token", token)
-				.put("dbname", dbname)
-				.put("username", username)
-				.put("userpass", userpass)
-				.put("_DBPASSWD", dbapass);
-		
-		sendRequest(connection, request);
-		logger.info(request.toString(4));
-		
-		JSONObject response = recvResponse(connection);
-		logger.info(response.toString(4));
-	
-		connection.disconnect();
-		logger.info("connection.disconnect()");
-
-		synchronized (CubridManagerServerAPIService.tokenRequestList) {
-			CubridManagerServerAPIService.tokenRequestList.remove(task + ":" + dbname + ":" + username);
-		}
-		
-		logger.info("Creating user complete. (DB: " + dbname + ", USER: " + username + ")");
-
-		return response;
-	}
-	
-	public JSONObject doDeleteuser(String dbname, String dbapass, String username) {
-		logger.info("Deleting user... (DB: " + dbname + ", USER: " + username + ")");
-		
-		final String task = "deleteuser";
-		
-		HttpsURLConnection connection = getConnection();
-		
-		try {
-			doLogin(task + ":" + dbname + ":" + username);
-		} catch (ServiceBrokerException e) {
-			e.printStackTrace();
-		}
-		
-		String token = CubridManagerServerAPIService.token;
-		
-		JSONObject request = new JSONObject()
-				.put("task", task)
-				.put("token", token)
-				.put("dbname", dbname)
-				.put("username", username)
-				.put("_DBPASSWD", dbapass);
-		
-		sendRequest(connection, request);
-		logger.info(request.toString(4));
-		
-		JSONObject response = recvResponse(connection);
-		logger.info(response.toString(4));
-	
-		connection.disconnect();
-		logger.info("connection.disconnect()");
-
-		synchronized (CubridManagerServerAPIService.tokenRequestList) {
-			CubridManagerServerAPIService.tokenRequestList.remove(task + ":" + dbname + ":" + username);
-		}
-		
-		logger.info("Deleting user complete. (DB: " + dbname + ", USER: " + username + ")");
-
-		return response;
-	}
-
-//	public String checkStatus(JSONObject response) {
-//		if (response != null && response.get("status") != null) {
-//			return response.get("status").toString();
-//		}
-//
-//		return null;
-//	}
 }

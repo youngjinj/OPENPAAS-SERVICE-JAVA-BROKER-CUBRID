@@ -94,6 +94,61 @@ public class CubridAdminService {
 		return password.toString();
 	}
 	
+	public void doUpdateDBAPassword(String dbname, String dbapass) {
+		String sql = "/* doCreateUser */ ALTER USER [DBA] PASSWORD '" + dbapass + "'";
+		
+		SqlParameterSource param = new MapSqlParameterSource();
+		
+		NamedParameterJdbcTemplate instanceJdbcTemplate = getNamedParameterJdbcTemplate(dbname, "dba", "");
+		try {
+			instanceJdbcTemplate.update(sql, param);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}
+	}
+	
+	public void doCreateUser(String dbname, String dbapass, String username, String userpass) {
+		String sql = "/* doCreateUser */ CREATE USER [" + username + "] PASSWORD '" + userpass + "'";
+		
+		SqlParameterSource param = new MapSqlParameterSource();
+		
+		NamedParameterJdbcTemplate instanceJdbcTemplate = getNamedParameterJdbcTemplate(dbname, "dba", dbapass);
+		try {
+			instanceJdbcTemplate.update(sql, param);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}
+	}
+	
+	// 사용자가 삭제되지 않는 경우 (어플리케이션이 서비스 중인 경우) 예외 처리 필요
+	public void doDeleteUser(String dbname, String dbapass, String username) {
+		String sql = "/* doDeleteUser */ DROP USER [" + username + "]";
+		
+		SqlParameterSource param = new MapSqlParameterSource();
+		
+		NamedParameterJdbcTemplate instanceJdbcTemplate = getNamedParameterJdbcTemplate(dbname, "dba", dbapass);
+		try {
+			instanceJdbcTemplate.update(sql, param);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}
+	}
+	
+	public void dropUser(String dbname, String dbapass, String username, String userpass) {
+		String sql = "/* dropUser */ DROP USER [:username];";
+		
+		SqlParameterSource param = new MapSqlParameterSource()
+				.addValue("username", username)
+				.addValue("userpass", userpass);
+		
+		NamedParameterJdbcTemplate instanceJdbcTemplate = getNamedParameterJdbcTemplate(dbname, "dba", dbapass);
+		try {
+			instanceJdbcTemplate.update(sql, param);
+		} catch (DataAccessException e) {
+			logger.error(e.getLocalizedMessage(), e);
+		}
+	}
+	
 	public Map<String, Object> getCredentials(String dbname, String username, String password) {
 		Map<String, Object> credentials = new HashMap<String, Object>();
 		credentials.put("driverClassName", CubridAdminService.SERVICE_DRIVER_CLASS_NAME);
@@ -266,7 +321,7 @@ public class CubridAdminService {
 		Map<String, Object> credentials = getCredentialsInfo(serviceInstanceBindId);
 		
 		DriverManagerDataSource instanceDataSource = new DriverManagerDataSource();
-		instanceDataSource.setDriverClassName(String.valueOf(credentials.get("driverClassName")));
+		instanceDataSource.setDriverClassName(CubridAdminService.SERVICE_DRIVER_CLASS_NAME);
 		instanceDataSource.setUrl(String.valueOf(credentials.get("jdbcUrl")));
 		instanceDataSource.setUsername(String.valueOf(credentials.get("username")));
 		instanceDataSource.setPassword(String.valueOf(credentials.get("password")));
@@ -295,6 +350,30 @@ public class CubridAdminService {
 		}
 
 		return message.toString();
+	}
+	
+	private NamedParameterJdbcTemplate getNamedParameterJdbcTemplate(String dbname, String username, String userpass) {
+		StringBuilder uri = new StringBuilder();
+		uri.append("cubrid").append(":");
+		uri.append(CubridAdminService.SERVICE_INSTANCE_IP).append(":");
+		uri.append(CubridAdminService.SERVICE_INSTANCE_PORT).append(":");
+		uri.append(dbname).append(":");
+		uri.append(username).append(":");
+		uri.append(userpass).append(":");
+		
+		StringBuilder jdbcUrl = new StringBuilder();
+		jdbcUrl.append("jdbc").append(":");
+		jdbcUrl.append(uri.toString());
+		
+		DriverManagerDataSource instanceDataSource = new DriverManagerDataSource();
+		instanceDataSource.setDriverClassName(CubridAdminService.SERVICE_DRIVER_CLASS_NAME);
+		instanceDataSource.setUrl(jdbcUrl.toString());
+		instanceDataSource.setUsername(username);
+		instanceDataSource.setPassword(userpass);
+		
+		NamedParameterJdbcTemplate namedParameterJdbcTemplate = new NamedParameterJdbcTemplate(instanceDataSource);
+		
+		return namedParameterJdbcTemplate;
 	}
 	
 	private void saveServiceInstanceInfo(CubridServiceInstance serviceInstance) {
@@ -436,4 +515,6 @@ public class CubridAdminService {
 			instanceJdbcTemplate.execute("DROP " + objectType + " " + name + ";");
 		}
 	}
+	
+
 }
